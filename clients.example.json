@@ -1,0 +1,4 @@
+{
+  "sealbox-prod":    { "token": "REPLACE-ME", "keys": ["sealbox"], "decrypt_per_second": 200 },
+  "sealbox-staging": { "token": "REPLACE-ME", "keys": ["sealbox-staging"] }
+}

@@ -1,0 +1,14 @@
+/keeper
+/keeper.exe
+/bin/
+
+# Secrets that live next to the code during development.
+.env
+.env.*
+!.env.example
+clients*.json
+!clients.example.json
+*.pem
+*.key
+*.crt
+master*

@@ -1,0 +1,10 @@
+# Local development only: keeper alone, plaintext HTTP on localhost.
+# In production keeper runs on its own host with TLS and client certificates.
+services:
+  keeper:
+    build: .
+    environment:
+      KEEPER_MASTER_KEY: ${KEEPER_MASTER_KEY:?set it in .env, see .env.example}
+      KEEPER_TOKEN: ${KEEPER_TOKEN:?set it in .env, see .env.example}
+      KEEPER_INSECURE_HTTP: "1"
+    ports: ["127.0.0.1:8200:8200"]

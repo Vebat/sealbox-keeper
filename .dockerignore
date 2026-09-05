@@ -1,0 +1,11 @@
+.env*
+!.env.example
+clients*.json
+!clients.example.json
+*.pem
+*.key
+*.crt
+master*
+.git
+.github
+*.md
