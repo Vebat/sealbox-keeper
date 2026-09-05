@@ -1,0 +1,46 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write   # create the release and upload assets
+  id-token: write   # keyless signing with cosign through GitHub's OIDC identity
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build
+        run: |
+          set -e
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 windows/amd64 darwin/arm64; do
+            os=${target%/*}; arch=${target#*/}; ext=""; [ "$os" = windows ] && ext=".exe"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w" \
+              -o "dist/keeper_${GITHUB_REF_NAME}_${os}_${arch}${ext}" ./cmd/keeper
+          done
+          (cd dist && sha256sum keeper_* > SHA256SUMS)
+      - name: sbom
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/keeper_${{ github.ref_name }}.sbom.spdx.json
+          upload-artifact: false
+      - uses: sigstore/cosign-installer@v3
+      - name: sign
+        run: |
+          set -e
+          cd dist
+          for f in keeper_* SHA256SUMS; do
+            case "$f" in *.sigstore.json) continue;; esac
+            cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
+          done
+      - name: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-from-tag --verify-tag dist/*

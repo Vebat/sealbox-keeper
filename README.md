@@ -97,6 +97,18 @@ through `/v1/transit/rewrap`, and only the ones that named the old version are r
 skipped rows, remove the old line from the key file and restart. A ciphertext that still names a retired
 version cannot be opened by anyone.
 
+## Releases
+
+Every `v*` tag builds binaries for linux, windows and macOS, an SPDX SBOM, and signs each file with cosign
+under this repository's GitHub identity, keyless. Verify before running, this binary holds the master key:
+
+```sh
+cosign verify-blob --bundle keeper_v0.1.0_linux_amd64.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/Vebat/sealbox-keeper/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  keeper_v0.1.0_linux_amd64
+```
+
 ## Threat model
 
 Protects against: a compromised sealbox host walking away with the master key; bulk exfiltration faster than
