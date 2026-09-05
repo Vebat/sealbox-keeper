@@ -3,8 +3,39 @@
 A small key service for [sealbox](https://github.com/Vebat/sealbox). It speaks the Vault transit protocol,
 so sealbox points at it with `SEALBOX_KMS=transit` and never holds a master key again.
 
+```
+sealbox ──── "wrap this key" ─────▶ keeper ──── holds the master key, on its own host
+sealbox ◀─── wrapped key ─────────  keeper      rate-limited, every call logged, one token to revoke
+```
+
 > **Status: pre-alpha, not audited.** This process becomes the root of trust for every object in sealbox.
 > Do not run it anywhere you would not run a KMS.
+
+## Thirty seconds
+
+Wrap a key bound to a row, unwrap it, try the wrong row. Real output.
+
+```console
+$ curl -H "X-Vault-Token: $TOKEN" -d '{"plaintext":"c2VjcmV0","context":"b2JqZWN0cy9jdXN0b21lcnMvdG9rXzE="}' \
+    localhost:8200/v1/transit/encrypt/sealbox
+{"data":{"ciphertext":"keeper:79e0b7741d267d52:uGxNRm2tZtECi/cIP+HuT8i8suJ7mngpiR88t3vDGfXbFN/emUkDw3qstnnApg==","key_id":"79e0b7741d267d52"}}
+
+$ curl -H "X-Vault-Token: $TOKEN" -d '{"ciphertext":"keeper:79e0b7741d267d52:uGxN…","context":"b2JqZWN0cy9jdXN0b21lcnMvdG9rXzE="}' \
+    localhost:8200/v1/transit/decrypt/sealbox
+{"data":{"plaintext":"c2VjcmV0"}}
+
+$ curl -H "X-Vault-Token: $TOKEN" -d '{"ciphertext":"keeper:79e0b7741d267d52:uGxN…","context":"b3RoZXI="}' \
+    localhost:8200/v1/transit/decrypt/sealbox
+{"errors":["keeper: invalid ciphertext"]}
+```
+
+And on keeper's stdout, one line per call, never any key material:
+
+```json
+{"level":"INFO","msg":"transit","client":"default","op":"encrypt","key":"sealbox","status":200}
+{"level":"INFO","msg":"transit","client":"default","op":"decrypt","key":"sealbox","status":200}
+{"level":"WARN","msg":"transit","client":"default","op":"decrypt","key":"sealbox","status":400,"reason":"keeper: invalid ciphertext"}
+```
 
 ## Why
 
