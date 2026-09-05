@@ -35,6 +35,10 @@ POST /v1/transit/rewrap/{key}    { "ciphertext": "...", "context": base64 }
 Authentication is the `X-Vault-Token` header. Errors are `{ "errors": ["..."] }`: 400 for a ciphertext that does
 not open, 403 for a bad token or a key the client may not use, 429 for the rate limit.
 
+Decrypt also takes `{ "batch_input": [ { "ciphertext", "context" }, ... ] }` and answers
+`{ "data": { "batch_results": [ { "plaintext" } | { "error" }, ... ] } }`, one result per input in order; a bad item
+fails alone. sealbox uses it for batch reveals, 500 keys per call. Each item spends one unit of the rate limit.
+
 Every key name is valid: keys are derived from the master key with HKDF, one per name, so `sealbox` and
 `sealbox-staging` never share key material. The context is always bound, like a transit key created with
 `derived=true`: a ciphertext made for one sealbox row does not open for another.

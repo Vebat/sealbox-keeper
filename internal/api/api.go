@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"golang.org/x/time/rate"
 
@@ -27,7 +28,7 @@ import (
 )
 
 const (
-	maxBody                 = 8 << 10 // a wrapped key is tens of bytes; nothing larger belongs here
+	maxBody                 = 256 << 10 // a wrapped key is tens of bytes; a batch of 500 fits with room
 	minTokenLen             = 16
 	defaultDecryptPerSecond = 200
 )
@@ -157,11 +158,6 @@ func (s *server) handle(op string) http.HandlerFunc {
 			s.refuse(w, r, c.Name, op, key, http.StatusForbidden, "permission denied")
 			return
 		}
-		if op != "encrypt" && !s.limiters[c.Name].Allow() {
-			s.refuse(w, r, c.Name, op, key, http.StatusTooManyRequests, "rate limit exceeded")
-			return
-		}
-
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
 		if err != nil {
 			s.refuse(w, r, c.Name, op, key, http.StatusBadRequest, "body too large or unreadable")
@@ -171,9 +167,45 @@ func (s *server) handle(op string) http.HandlerFunc {
 			Plaintext  string `json:"plaintext"`
 			Ciphertext string `json:"ciphertext"`
 			Context    string `json:"context"`
+			Batch      []struct {
+				Ciphertext string `json:"ciphertext"`
+				Context    string `json:"context"`
+			} `json:"batch_input"`
 		}
 		if err := json.Unmarshal(body, &req); err != nil {
 			s.refuse(w, r, c.Name, op, key, http.StatusBadRequest, "invalid request")
+			return
+		}
+		units := 1
+		if len(req.Batch) > 0 {
+			if op != "decrypt" {
+				s.refuse(w, r, c.Name, op, key, http.StatusBadRequest, "batch_input is only supported for decrypt")
+				return
+			}
+			units = len(req.Batch)
+		}
+		if op != "encrypt" && !s.limiters[c.Name].AllowN(time.Now(), units) {
+			s.refuse(w, r, c.Name, op, key, http.StatusTooManyRequests, "rate limit exceeded")
+			return
+		}
+		if len(req.Batch) > 0 {
+			// One result per input, in order; a bad item fails alone.
+			results := make([]map[string]string, 0, len(req.Batch))
+			for _, item := range req.Batch {
+				context, err := base64.StdEncoding.DecodeString(item.Context)
+				if err != nil {
+					results = append(results, map[string]string{"error": "context must be base64"})
+					continue
+				}
+				plaintext, err := s.ring.Decrypt(key, item.Ciphertext, context)
+				if err != nil {
+					results = append(results, map[string]string{"error": err.Error()})
+					continue
+				}
+				results = append(results, map[string]string{"plaintext": base64.StdEncoding.EncodeToString(plaintext)})
+			}
+			s.audit.Info("transit", "client", c.Name, "op", op, "key", key, "status", http.StatusOK, "batch", len(results))
+			writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"batch_results": results}})
 			return
 		}
 		context, err := base64.StdEncoding.DecodeString(req.Context)

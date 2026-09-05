@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -110,6 +111,51 @@ func TestEncryptDecryptRewrap(t *testing.T) {
 		if strings.Contains(log, leak) {
 			t.Errorf("audit log leaks %q", leak)
 		}
+	}
+}
+
+func TestBatchDecrypt(t *testing.T) {
+	srv, _ := newServer(t)
+	var cts []string
+	for i := range 3 {
+		_, data, _ := call(t, srv, otherToken, "encrypt", "other", map[string]string{"plaintext": b64(fmt.Sprintf("dek-%d", i)), "context": b64("ctx")})
+		cts = append(cts, data["ciphertext"])
+	}
+	body, _ := json.Marshal(map[string]any{"batch_input": []map[string]string{
+		{"ciphertext": cts[0], "context": b64("ctx")},
+		{"ciphertext": cts[1], "context": b64("other")},
+		{"ciphertext": "keeper:0000000000000000:AAAA", "context": b64("ctx")},
+		{"ciphertext": cts[2], "context": b64("ctx")},
+	}})
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/transit/decrypt/other", bytes.NewReader(body))
+	req.Header.Set("X-Vault-Token", otherToken)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var res struct {
+		Data struct {
+			Results []map[string]string `json:"batch_results"`
+		} `json:"data"`
+	}
+	json.NewDecoder(resp.Body).Decode(&res)
+	r := res.Data.Results
+	if resp.StatusCode != http.StatusOK || len(r) != 4 {
+		t.Fatalf("batch: %d, %d results", resp.StatusCode, len(r))
+	}
+	if r[0]["plaintext"] != b64("dek-0") || r[3]["plaintext"] != b64("dek-2") {
+		t.Errorf("good items: %v %v", r[0], r[3])
+	}
+	if r[1]["error"] == "" || r[2]["error"] == "" {
+		t.Errorf("bad items must fail alone: %v %v", r[1], r[2])
+	}
+
+	// batch_input is decrypt only.
+	req, _ = http.NewRequest("POST", srv.URL+"/v1/transit/rewrap/other", bytes.NewReader(body))
+	req.Header.Set("X-Vault-Token", otherToken)
+	if resp, err := srv.Client().Do(req); err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("batch rewrap: %v %v", resp.StatusCode, err)
 	}
 }
 
