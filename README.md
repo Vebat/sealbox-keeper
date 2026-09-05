@@ -88,10 +88,10 @@ keeper is only worth running if it lives in a different trust domain than sealbo
 ## Master key rotation
 
 Put the new key first in `KEEPER_MASTER_KEY_FILE` and keep the old one after it, then restart. New
-ciphertexts name the new version; old ones still open. Retiring the old version needs every ciphertext that
-names it to be re-wrapped through `/v1/transit/rewrap`. sealbox does not call rewrap yet, so for now keep old
-versions loaded, or rotate sealbox's own keys instead. Teaching `sealbox rotate` to rewrap through transit is
-the next step on both sides.
+ciphertexts name the new version; old ones still open. Then run `sealbox rotate`: it sends every wrapped key
+through `/v1/transit/rewrap`, and only the ones that named the old version are rewritten. Once it reports no
+skipped rows, remove the old line from the key file and restart. A ciphertext that still names a retired
+version cannot be opened by anyone.
 
 ## Threat model
 
